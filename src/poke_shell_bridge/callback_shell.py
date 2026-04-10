@@ -8,6 +8,8 @@ from typing import AsyncGenerator
 
 from .shell import ShellRuntime, run_shell_command
 
+FAST_COMPLETION_GRACE_SECONDS = 0.25
+
 
 def _json_line(payload: dict[str, object]) -> str:
     return json.dumps(payload, ensure_ascii=False)
@@ -51,8 +53,6 @@ async def stream_shell_command(
     max_tail_bytes: int,
     heartbeat_seconds: int,
 ) -> AsyncGenerator[str, None]:
-    yield _started_event(command, cwd, runtime, timeout)
-
     task = asyncio.create_task(
         asyncio.to_thread(
             run_shell_command,
@@ -66,12 +66,30 @@ async def stream_shell_command(
         )
     )
     started = time.monotonic()
+    heartbeat_interval = max(heartbeat_seconds, 1)
+
+    try:
+        result = await asyncio.wait_for(
+            asyncio.shield(task),
+            timeout=FAST_COMPLETION_GRACE_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        yield _started_event(command, cwd, runtime, timeout)
+    else:
+        yield _completed_event(result)
+        return
 
     while not task.done():
-        await asyncio.sleep(max(heartbeat_seconds, 1))
-        if task.done():
-            break
-        yield _heartbeat_event(command, int(time.monotonic() - started))
+        try:
+            result = await asyncio.wait_for(
+                asyncio.shield(task),
+                timeout=heartbeat_interval,
+            )
+        except asyncio.TimeoutError:
+            yield _heartbeat_event(command, int(time.monotonic() - started))
+        else:
+            yield _completed_event(result)
+            return
 
     result = await task
     yield _completed_event(result)

@@ -7,8 +7,7 @@
 ## 它能做什么
 
 - 在指定工作区里 `read` / `write` / `edit` 文件
-- 执行短命令，并返回结构化结果
-- 执行长命令，并通过 Poke callback 持续回推进度
+- 执行任意 shell 命令，并通过 Poke callback 回推进度
 - 检查当前工作目录是否是 git repo、`codex` 是否可用、trusted path 是否命中
 - 自动适配目标机器上的 shell 运行时，不让模型去猜该用 `bash` 还是 `zsh`
 
@@ -25,8 +24,7 @@
 | `read` | 读取文本文件，支持分页 |
 | `write` | 整文件覆盖写入 |
 | `edit` | 基于唯一精确匹配做文本替换 |
-| `shell` | 执行短命令，返回结构化结果 |
-| `shell_background` | 执行长命令，通过 callback 回推进度 |
+| `shell` | 执行命令；快命令立即完成，长命令通过 callback 回推进度 |
 | `workspace_profile` | 预检 git / codex / trusted path / shell 环境 |
 
 ## 快速开始
@@ -77,9 +75,9 @@ npx poke tunnel http://127.0.0.1:8765/mcp -n poke-shell-bridge
 | `POKE_BRIDGE_SHELL` | 自动解析 | 指定 shell 可执行文件 |
 | `POKE_BRIDGE_SHELL_MODE` | `login` | `login` 或 `exec` |
 | `POKE_BRIDGE_PATH_PREFIX` | 空 | 额外追加到 `PATH` 前面的目录列表 |
-| `POKE_BRIDGE_SHELL_TIMEOUT` | `10` | `shell` 的默认超时秒数 |
-| `POKE_BRIDGE_BACKGROUND_TIMEOUT` | `1800` | `shell_background` 的默认超时秒数 |
-| `POKE_BRIDGE_COMMAND_TIMEOUT` | 兼容旧配置 | 若设置且未设置新变量，则同时作为两类命令的默认超时 |
+| `POKE_BRIDGE_SHELL_TIMEOUT` | `1800` | `shell` 的默认超时秒数 |
+| `POKE_BRIDGE_BACKGROUND_TIMEOUT` | 兼容旧配置 | 旧版本长命令超时变量，未设置新变量时仍会回退读取 |
+| `POKE_BRIDGE_COMMAND_TIMEOUT` | 兼容旧配置 | 更早期兼容变量，未设置新变量时会作为默认超时 |
 | `POKE_BRIDGE_CALLBACK_HEARTBEAT_SECONDS` | `5` | 长命令 heartbeat 间隔 |
 | `POKE_BRIDGE_MAX_READ_LINES` | `200` | 单次读取最大行数 |
 | `POKE_BRIDGE_MAX_READ_BYTES` | `32768` | 单次读取最大字节数 |
@@ -109,20 +107,24 @@ POKE_BRIDGE_SHELL > $SHELL > 平台默认 shell
 
 ### `shell`
 
-适合短命令，例如：
+`shell` 是唯一的命令执行工具，统一走 Poke callback 生命周期。
+
+适合：
 
 - `git status`
 - `command -v codex`
 - `pytest tests/foo.py -q`
+- `codex review .`
+- 构建、长测试、批量脚本
 
-特点：
+行为是：
 
-- 同步执行
-- 默认短超时（默认 `10s`）
-- 应快速返回最终结果
-- 如果时长不确定、输出可能很大，或需要进度回推，应改用 `shell_background`
+1. **快命令**：如果命令很快完成，会直接返回 `completed`
+2. **长命令**：先返回 `started`
+3. 运行过程中按 heartbeat 间隔回推 `heartbeat`
+4. 结束后回推 `completed`
 
-返回内容包含：
+`completed` 事件里的结果包含：
 
 - `success`
 - `exit_code`
@@ -131,41 +133,14 @@ POKE_BRIDGE_SHELL > $SHELL > 平台默认 shell
 - `resolved_cwd`
 - `shell` / `shell_args` / `shell_mode` / `shell_source`
 
-如果同步命令超时，bridge 会返回结构化 timeout 错误，并附带：
-
-- 已捕获的部分输出
-- 持久化日志路径
-- `suggested_tool: shell_background`
-
 如果输出过大，完整输出会保存到：
 
 ```text
 $POKE_BRIDGE_STATE_DIR/runs/...
 ```
 
-### `shell_background`
-
-适合长命令，例如：
-
-- `codex review .`
-- 大型构建
-- 长时间测试
-
-特点：
-
-- 首先返回 `started`
-- 默认使用长超时（默认 `1800s`）
-- 运行中通过 callback 回推 `heartbeat`
-- 结束后回推 `completed`
-
-行为是：
-
-1. 立即返回一条 `started`
-2. 运行过程中回推 `heartbeat`
-3. 结束后回推 `completed`
-
-> 注意：`shell_background` 依赖 Poke callback headers。
-> 如果 MCP 客户端没有带 `X-Poke-Callback-Token` / `X-Poke-Callback-Url`，Poke SDK 的 callback 包装不会继续执行后续 generator 生命周期，因此这个工具不适合作为“普通 MCP 客户端下的后台执行器”。
+> 注意：`shell` 依赖 Poke callback headers。
+> 如果 MCP 客户端没有带 `X-Poke-Callback-Token` / `X-Poke-Callback-Url`，它只能拿到第一条返回，后续 callback 不会继续送达。
 
 ### `workspace_profile`
 

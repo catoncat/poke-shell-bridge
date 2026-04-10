@@ -10,7 +10,6 @@ from poke.mcp import PokeCallbackMiddleware, with_callbacks
 from .callback_shell import stream_shell_command
 from .config import (
     APP_NAME,
-    BACKGROUND_TIMEOUT,
     CALLBACK_HEARTBEAT_SECONDS,
     HOST,
     MAX_OUTPUT_TAIL_BYTES,
@@ -26,7 +25,6 @@ from .config import (
 )
 from .files import edit_file, read_file, write_file
 from .pathing import resolve_cwd, resolve_path
-from .shell import run_shell_command
 from .workspace_profile import collect_workspace_profile
 
 mcp = FastMCP(
@@ -34,8 +32,9 @@ mcp = FastMCP(
     instructions=(
         "Computer control MCP server for a computer exposed to Poke. "
         "Use read/write/edit for file operations inside the workspace. "
-        f"Use shell for short, bounded commands that should usually finish within {SHELL_TIMEOUT} seconds. "
-        f"If duration is uncertain, output may be large, or progress should stream back to Poke, use shell_background instead; it has a separate long-running timeout of {BACKGROUND_TIMEOUT} seconds and depends on Poke callback headers. "
+        "Use shell for command execution. "
+        f"It always runs through Poke callbacks and uses a default timeout of {SHELL_TIMEOUT} seconds unless overridden per call. "
+        "Fast commands complete immediately; longer commands first emit started, then heartbeat updates, then completed. "
         "Use workspace_profile before git-aware tools like codex review, git diff, or gh. "
         "Relative paths resolve against workspace_root; absolute paths are also allowed. "
         f"The shell tool runs via {SHELL_RUNTIME.describe()}."
@@ -139,12 +138,13 @@ def workspace_profile(
 
 @mcp.tool(
     description=(
-        "Run a short, synchronous shell command and wait for the final result. "
-        "Use this for quick probes or bounded commands that should usually finish within the short timeout. "
-        "If duration is uncertain, output may be large, or progress should stream, use shell_background instead."
+        "Run a shell command on the computer through Poke callbacks. "
+        "Fast commands complete immediately; longer commands stream started, heartbeat, and completed events. "
+        "This tool requires a Poke callback-aware client."
     )
 )
-def shell(
+@with_callbacks
+async def shell(
     command: Annotated[
         str,
         Field(description="Shell command to execute."),
@@ -161,52 +161,8 @@ def shell(
         int | None,
         Field(
             description=(
-                "Optional per-call timeout in seconds for this synchronous command. "
-                "If omitted, the short default shell timeout is used."
-            )
-        ),
-    ] = None,
-) -> dict[str, object]:
-    resolved_cwd = resolve_cwd(cwd, WORKSPACE_ROOT)
-    return run_shell_command(
-        command=command,
-        cwd=resolved_cwd,
-        runtime=SHELL_RUNTIME,
-        timeout=timeout if timeout is not None else SHELL_TIMEOUT,
-        state_dir=STATE_DIR,
-        max_tail_lines=MAX_OUTPUT_TAIL_LINES,
-        max_tail_bytes=MAX_OUTPUT_TAIL_BYTES,
-        timeout_suggestion="shell_background",
-    )
-
-
-@mcp.tool(
-    description=(
-        "Run a long or duration-uncertain command and stream progress back through Poke callbacks. "
-        "Use this when the short synchronous timeout is too risky or when heartbeat updates are useful. "
-        "This tool requires a Poke callback-aware client."
-    )
-)
-@with_callbacks
-async def shell_background(
-    command: Annotated[
-        str,
-        Field(description="Shell command to execute as a long-running background task."),
-    ],
-    cwd: Annotated[
-        str | None,
-        Field(
-            description=(
-                "Optional working directory for the command. Relative paths resolve against the workspace root."
-            )
-        ),
-    ] = None,
-    timeout: Annotated[
-        int | None,
-        Field(
-            description=(
-                "Optional per-call timeout in seconds for this background command. "
-                "If omitted, the long background timeout is used."
+                "Optional per-call timeout in seconds for this command. "
+                "If omitted, the default shell timeout is used."
             )
         ),
     ] = None,
@@ -216,7 +172,7 @@ async def shell_background(
         command=command,
         cwd=resolved_cwd,
         runtime=SHELL_RUNTIME,
-        timeout=timeout if timeout is not None else BACKGROUND_TIMEOUT,
+        timeout=timeout if timeout is not None else SHELL_TIMEOUT,
         state_dir=STATE_DIR,
         max_tail_lines=MAX_OUTPUT_TAIL_LINES,
         max_tail_bytes=MAX_OUTPUT_TAIL_BYTES,
