@@ -1,20 +1,21 @@
-# poke-m1-bridge
+# poke-shell-bridge
 
-给专用的 `m1` Mac 沙盒机使用的本地 MCP bridge。
+给 Poke 使用的通用本地 MCP shell bridge。
 
 ## 提供的工具
 
 - `read`
 - `write`
 - `edit`
-- `bash_exec`
+- `shell`
 
 ## 设计目标
 
-- 运行在 `m1` 本机
+- 运行在本地机器
 - 默认围绕一个固定 `workspace_root` 工作
 - 同时允许显式传绝对路径
-- `bash_exec` 保持原始 shell 语义，不引入额外包装
+- `shell` 保持原始 shell 语义，不引入额外包装
+- shell 由 bridge 在启动时解析，不让 LLM 猜当前机器该用 bash 还是 zsh
 - 服务默认只监听 `127.0.0.1`
 
 ## 环境变量
@@ -23,8 +24,10 @@
 POKE_BRIDGE_HOST=127.0.0.1
 POKE_BRIDGE_PORT=8765
 POKE_BRIDGE_WORKSPACE_ROOT=~/work/agent-sandbox
-POKE_BRIDGE_STATE_DIR=~/.poke-m1-bridge
+POKE_BRIDGE_STATE_DIR=~/.poke-shell-bridge
 POKE_BRIDGE_SHELL=/bin/zsh
+POKE_BRIDGE_SHELL_MODE=login
+POKE_BRIDGE_PATH_PREFIX=~/.bun/bin:~/.codex/scripts
 POKE_BRIDGE_COMMAND_TIMEOUT=30
 POKE_BRIDGE_MAX_READ_LINES=200
 POKE_BRIDGE_MAX_READ_BYTES=32768
@@ -36,8 +39,8 @@ POKE_BRIDGE_MAX_OUTPUT_TAIL_BYTES=32768
 
 ```bash
 cd ~/work
-python3 -m venv poke-m1-bridge/.venv
-cd poke-m1-bridge
+python3 -m venv poke-shell-bridge/.venv
+cd poke-shell-bridge
 source .venv/bin/activate
 pip install -r requirements.txt
 pip install -e .
@@ -47,13 +50,13 @@ pip install -e .
 
 ```bash
 export POKE_BRIDGE_WORKSPACE_ROOT=~/work/agent-sandbox
-poke-m1-bridge
+poke-shell-bridge
 ```
 
 或者：
 
 ```bash
-python3 -m poke_m1_bridge.server
+python3 -m poke_shell_bridge.server
 ```
 
 服务地址：
@@ -68,7 +71,7 @@ http://127.0.0.1:8765/mcp
 
 ```bash
 npx poke login
-npx poke tunnel http://127.0.0.1:8765/mcp -n m1-agent
+npx poke tunnel http://127.0.0.1:8765/mcp -n poke-shell-bridge
 ```
 
 ## 说明
@@ -76,4 +79,8 @@ npx poke tunnel http://127.0.0.1:8765/mcp -n m1-agent
 - `read` 默认按行读取并在大文件时返回 `next_offset`
 - `write` 是整文件覆盖写
 - `edit` 是基于唯一精确匹配的文本替换
-- `bash_exec` 会返回结构化结果；当输出过大时，会把完整输出保存到 `POKE_BRIDGE_STATE_DIR/runs/...`
+- `shell` 会返回结构化结果；当输出过大时，会把完整输出保存到 `POKE_BRIDGE_STATE_DIR/runs/...`
+- 实际执行 shell 由 bridge 启动时解析：`POKE_BRIDGE_SHELL` > `$SHELL` > 平台默认 shell
+- `POKE_BRIDGE_SHELL_MODE` 默认是 `login`；需要完全跳过 login profile 时可改成 `exec`
+- bridge 会在执行前把常见用户 bin 目录预置到 `PATH`，可再通过 `POKE_BRIDGE_PATH_PREFIX` 追加
+- `shell` 返回里会附带 `shell` / `shell_args` / `shell_mode` / `shell_source`，方便模型和人一起排查环境问题

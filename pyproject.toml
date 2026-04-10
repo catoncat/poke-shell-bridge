@@ -3,9 +3,9 @@ requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "poke-m1-bridge"
+name = "poke-shell-bridge"
 version = "0.1.0"
-description = "Local MCP bridge for a dedicated Mac sandbox used by Poke."
+description = "Local MCP shell bridge for computers used by Poke."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -14,7 +14,7 @@ dependencies = [
 ]
 
 [project.scripts]
-poke-m1-bridge = "poke_m1_bridge.server:main"
+poke-shell-bridge = "poke_shell_bridge.server:main"
 
 [tool.setuptools.package-dir]
 "" = "src"

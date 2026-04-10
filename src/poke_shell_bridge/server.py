@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastmcp import FastMCP
 
-from .bash_exec import run_bash_exec
+from .shell import run_shell_command
 from .config import (
     APP_NAME,
     COMMAND_TIMEOUT,
@@ -12,7 +12,7 @@ from .config import (
     MAX_READ_BYTES,
     MAX_READ_LINES,
     PORT,
-    SHELL,
+    SHELL_RUNTIME,
     STATE_DIR,
     WORKSPACE_ROOT,
     ensure_runtime_directories,
@@ -23,9 +23,10 @@ from .pathing import resolve_cwd, resolve_path
 mcp = FastMCP(
     APP_NAME,
     instructions=(
-        "Local MCP bridge for a dedicated Mac sandbox. "
-        "Use read/write/edit for file operations and bash_exec for shell commands. "
-        "Relative paths resolve against workspace_root; absolute paths are also allowed."
+        "Local MCP shell bridge for a computer exposed to Poke. "
+        "Use read/write/edit for file operations and shell for shell commands. "
+        "Relative paths resolve against workspace_root; absolute paths are also allowed. "
+        f"The shell tool runs via {SHELL_RUNTIME.describe()}."
     ),
 )
 
@@ -55,12 +56,12 @@ def edit(path: str, oldText: str, newText: str) -> dict[str, object]:
 
 
 @mcp.tool
-def bash_exec(command: str, cwd: str | None = None, timeout: int | None = None) -> dict[str, object]:
+def shell(command: str, cwd: str | None = None, timeout: int | None = None) -> dict[str, object]:
     resolved_cwd = resolve_cwd(cwd, WORKSPACE_ROOT)
-    return run_bash_exec(
+    return run_shell_command(
         command=command,
         cwd=resolved_cwd,
-        shell=SHELL,
+        runtime=SHELL_RUNTIME,
         timeout=timeout or COMMAND_TIMEOUT,
         state_dir=STATE_DIR,
         max_tail_lines=MAX_OUTPUT_TAIL_LINES,
@@ -73,6 +74,9 @@ def main() -> None:
     print(f"Starting {APP_NAME} on {HOST}:{PORT}")
     print(f"workspace_root={WORKSPACE_ROOT}")
     print(f"state_dir={STATE_DIR}")
+    print(f"shell_runtime={SHELL_RUNTIME.describe()}")
+    if SHELL_RUNTIME.path_prefixes:
+        print(f"path_prefixes={list(SHELL_RUNTIME.path_prefixes)}")
     mcp.run(
         transport="http",
         host=HOST,
