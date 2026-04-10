@@ -112,7 +112,6 @@ def main() -> None:
     app = PokeCallbackMiddleware(
         mcp.http_app(
             path="/mcp",
-            stateless_http=True,
             transport="http",
         )
     )
