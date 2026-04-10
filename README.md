@@ -1,6 +1,6 @@
 # poke-shell-bridge
 
-把一台独立机器上的文件读写与 shell 执行能力，通过 MCP 暴露给 Poke。
+一个面向 Poke 的 **Computer Control** MCP：把一台独立机器上的文件读写与 shell 执行能力，通过 MCP 暴露给 Poke。
 
 适合把 **专门给 agent 用的开发机 / 沙盒机** 接到 Poke，而不是直接暴露你的主力电脑。
 

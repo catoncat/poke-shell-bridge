@@ -32,7 +32,7 @@ from .workspace_profile import collect_workspace_profile
 mcp = FastMCP(
     APP_NAME,
     instructions=(
-        "Local MCP shell bridge for a computer exposed to Poke. "
+        "Computer control MCP server for a computer exposed to Poke. "
         "Use read/write/edit for file operations inside the workspace. "
         f"Use shell for short, bounded commands that should usually finish within {SHELL_TIMEOUT} seconds. "
         f"If duration is uncertain, output may be large, or progress should stream back to Poke, use shell_background instead; it has a separate long-running timeout of {BACKGROUND_TIMEOUT} seconds and depends on Poke callback headers. "

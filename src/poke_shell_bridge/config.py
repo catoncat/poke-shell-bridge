@@ -5,7 +5,7 @@ from pathlib import Path
 
 from .shell import resolve_shell_runtime
 
-APP_NAME = "poke-shell-bridge"
+APP_NAME = "Computer Control"
 HOST = os.environ.get("POKE_BRIDGE_HOST", "127.0.0.1")
 PORT = int(os.environ.get("POKE_BRIDGE_PORT", "8765"))
 WORKSPACE_ROOT = Path(
