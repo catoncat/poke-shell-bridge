@@ -22,6 +22,9 @@ MAX_OUTPUT_TAIL_LINES = int(os.environ.get("POKE_BRIDGE_MAX_OUTPUT_TAIL_LINES", 
 MAX_OUTPUT_TAIL_BYTES = int(
     os.environ.get("POKE_BRIDGE_MAX_OUTPUT_TAIL_BYTES", str(32 * 1024))
 )
+CALLBACK_HEARTBEAT_SECONDS = int(
+    os.environ.get("POKE_BRIDGE_CALLBACK_HEARTBEAT_SECONDS", "5")
+)
 
 
 def ensure_runtime_directories() -> None:
