@@ -64,6 +64,14 @@ npx poke login
 npx poke tunnel http://127.0.0.1:8765/mcp -n poke-shell-bridge
 ```
 
+建议把 `poke tunnel` 当成长驻连接来维护，而不是每次部署都重建。
+
+- 平时更新 bridge 代码，只需要重启 bridge 进程
+- tunnel 尽量保持长活，让 Poke 持续复用同一条连接
+- 只有你明确想换一条新连接时，才手动重启 tunnel
+
+这样更不容易在 Poke 里积累一堆历史连接项。
+
 ## 配置
 
 | 环境变量 | 默认值 | 说明 |

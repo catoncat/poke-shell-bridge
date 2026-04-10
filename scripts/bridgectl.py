@@ -162,6 +162,29 @@ def logs_command(node: Node, service: str, lines: int) -> str:
     return f"tail -n {int(lines)} {q(path)} | tr -d '\\000'"
 
 
+def running_check_command(node: Node, service: str) -> str:
+    if service == "bridge":
+        session = node.bridge_session
+        pattern = bridge_process_pattern(node)
+    else:
+        session = node.tunnel_session
+        pattern = tunnel_process_pattern(node)
+    return f"""
+if tmux has-session -t {q(session)} 2>/dev/null; then
+  echo "running"
+elif pgrep -f -- {q(pattern)} >/dev/null 2>&1; then
+  echo "running"
+else
+  echo "stopped"
+fi
+""".strip()
+
+
+def service_is_running(node: Node, service: str) -> bool:
+    result = run_shell(node, running_check_command(node, service))
+    return result.stdout.strip() == "running"
+
+
 def nodes_for(target: str) -> list[Node]:
     if target == "m1":
         target = "remote"
@@ -201,7 +224,13 @@ def do_action(action: str, target: str, service: str) -> None:
             if service in {"bridge", "all"}:
                 exec_and_print(node, f"{node.name} restart bridge", bridge_command(node))
             if service in {"tunnel", "all"}:
-                exec_and_print(node, f"{node.name} restart tunnel", tunnel_command(node))
+                if service_is_running(node, "tunnel"):
+                    print_block(
+                        f"{node.name} ensure tunnel",
+                        "tunnel already running; keep existing Poke connection",
+                    )
+                else:
+                    exec_and_print(node, f"{node.name} start tunnel", tunnel_command(node))
         return
 
     for node in nodes_for(target):

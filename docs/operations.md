@@ -29,9 +29,13 @@ python3 scripts/bridgectl.py restart local bridge
 python3 scripts/bridgectl.py restart local tunnel
 python3 scripts/bridgectl.py restart all all
 
-# 同步并重建
+# 同步代码并刷新 bridge
 python3 scripts/bridgectl.py deploy all all
 python3 scripts/bridgectl.py deploy remote all
+
+# 只有确实需要换一条新 tunnel 时，才显式重启 tunnel
+python3 scripts/bridgectl.py restart local tunnel
+python3 scripts/bridgectl.py restart remote tunnel
 
 # 查看日志
 python3 scripts/bridgectl.py logs local bridge -n 50
@@ -42,8 +46,21 @@ python3 scripts/bridgectl.py logs remote tunnel -n 50
 
 - `start` / `restart`：用 `tmux` 拉起 bridge / tunnel
 - `stop`：杀掉对应 `tmux session`
-- `deploy`：重新安装当前仓库；远端会先 `git pull --ff-only origin main`，然后重启对应服务
+- `deploy`：重新安装当前仓库；远端会先 `git pull --ff-only origin main`
+  - `bridge`：会重启，确保最新代码立即生效
+  - `tunnel`：**默认不重建**；如果 tunnel 已经在线，就继续复用当前 Poke 连接；只有 tunnel 没跑时才补起
 - `logs`：只支持 `bridge` 或 `tunnel`
+
+这套策略的目的，是尽量避免每次 `deploy` 都在 Poke 里生成一条新的连接记录。
+
+如果你**就是要**强制换一条新连接，再手动执行：
+
+```bash
+python3 scripts/bridgectl.py restart local tunnel
+python3 scripts/bridgectl.py restart remote tunnel
+```
+
+如果 Poke 里已经积累了历史旧连接，需要去 Poke 的连接管理界面手动断开旧项；`deploy` 现在只负责尽量不再继续制造新项。
 
 默认情况下，bridge 的 server log 里会带 `TRACE {...}` 行，可以直接配合：
 
