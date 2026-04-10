@@ -13,7 +13,7 @@
 
 ## 设计目标
 
-- 运行在本地机器
+- 运行在你希望暴露给 Poke 的那台机器上
 - 默认围绕一个固定 `workspace_root` 工作
 - 同时允许显式传绝对路径
 - `shell` 保持原始 shell 语义，不引入额外包装
@@ -25,7 +25,7 @@
 ```bash
 POKE_BRIDGE_HOST=127.0.0.1
 POKE_BRIDGE_PORT=8765
-POKE_BRIDGE_WORKSPACE_ROOT=~/work/agent-sandbox
+POKE_BRIDGE_WORKSPACE_ROOT=~/workspace
 POKE_BRIDGE_STATE_DIR=~/.poke-shell-bridge
 POKE_BRIDGE_SHELL=/bin/zsh
 POKE_BRIDGE_SHELL_MODE=login
@@ -38,10 +38,10 @@ POKE_BRIDGE_MAX_OUTPUT_TAIL_LINES=200
 POKE_BRIDGE_MAX_OUTPUT_TAIL_BYTES=32768
 ```
 
-## 在 m1 上安装
+## 安装
 
 ```bash
-cd ~/work
+cd ~
 python3 -m venv poke-shell-bridge/.venv
 cd poke-shell-bridge
 source .venv/bin/activate
@@ -52,7 +52,7 @@ pip install -e .
 ## 启动
 
 ```bash
-export POKE_BRIDGE_WORKSPACE_ROOT=~/work/agent-sandbox
+export POKE_BRIDGE_WORKSPACE_ROOT=~/workspace
 poke-shell-bridge
 ```
 
@@ -70,7 +70,7 @@ http://127.0.0.1:8765/mcp
 
 ## 接入 Poke
 
-在 `m1` 上：
+在 bridge 所在主机上：
 
 ```bash
 npx poke login

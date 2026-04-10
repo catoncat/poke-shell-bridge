@@ -9,7 +9,7 @@ APP_NAME = "poke-shell-bridge"
 HOST = os.environ.get("POKE_BRIDGE_HOST", "127.0.0.1")
 PORT = int(os.environ.get("POKE_BRIDGE_PORT", "8765"))
 WORKSPACE_ROOT = Path(
-    os.environ.get("POKE_BRIDGE_WORKSPACE_ROOT", "~/work/agent-sandbox")
+    os.environ.get("POKE_BRIDGE_WORKSPACE_ROOT", "~/workspace")
 ).expanduser().resolve()
 STATE_DIR = Path(
     os.environ.get("POKE_BRIDGE_STATE_DIR", "~/.poke-shell-bridge")
