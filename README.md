@@ -72,6 +72,12 @@ npx poke tunnel http://127.0.0.1:8765/mcp -n poke-shell-bridge
 
 这样更不容易在 Poke 里积累一堆历史连接项。
 
+另外，bridge 现在会在 **同一 session 的新 `GET /mcp` 到来时自动接管旧 SSE**。
+
+- 如果 Poke / tunnel 因为重连又发来一条新的 GET
+- bridge 会优先让新的回推通道接管
+- 不再让旧的脏连接一直占着 session 把后续调用卡死
+
 ## 配置
 
 | 环境变量 | 默认值 | 说明 |

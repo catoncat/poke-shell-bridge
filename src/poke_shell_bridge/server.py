@@ -25,6 +25,7 @@ from .config import (
 )
 from .files import edit_file, read_file, write_file
 from .pathing import resolve_cwd, resolve_path
+from .session_recovery import SSEStreamTakeoverMiddleware
 from .trace import MCPTraceMiddleware
 from .workspace_profile import collect_workspace_profile
 
@@ -188,11 +189,15 @@ def main() -> None:
     print(f"workspace_root={WORKSPACE_ROOT}")
     print(f"state_dir={STATE_DIR}")
     print(f"shell_runtime={SHELL_RUNTIME.describe()}")
+    mcp_http_app = mcp.http_app(
+        path="/mcp",
+        transport="http",
+    )
     app = MCPTraceMiddleware(
         PokeCallbackMiddleware(
-            mcp.http_app(
-                path="/mcp",
-                transport="http",
+            SSEStreamTakeoverMiddleware(
+                mcp_http_app,
+                transport_path="/mcp",
             )
         )
     )

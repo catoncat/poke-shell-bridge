@@ -74,6 +74,14 @@ python3 scripts/bridgectl.py logs local bridge -n 100
 - HTTP `200 / 202 / 409`
 - `shell.started / shell.heartbeat / shell.completed`
 
+从现在开始，如果同一个 session 又来了一条新的 `GET /mcp`，bridge 会自动输出：
+
+```text
+TRACE {"event":"sse.takeover", ...}
+```
+
+这表示它已经主动让**新的 SSE 回推通道接管旧通道**，避免旧连接脏住后把整个会话卡死。
+
 ## 可配置环境变量
 
 如果你的机器名、远端路径或 tunnel 名不同，可以通过环境变量覆盖：
