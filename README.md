@@ -79,6 +79,7 @@ npx poke tunnel http://127.0.0.1:8765/mcp -n poke-shell-bridge
 | `POKE_BRIDGE_BACKGROUND_TIMEOUT` | 兼容旧配置 | 旧版本长命令超时变量，未设置新变量时仍会回退读取 |
 | `POKE_BRIDGE_COMMAND_TIMEOUT` | 兼容旧配置 | 更早期兼容变量，未设置新变量时会作为默认超时 |
 | `POKE_BRIDGE_CALLBACK_HEARTBEAT_SECONDS` | `5` | 长命令 heartbeat 间隔 |
+| `POKE_BRIDGE_TRACE` | `1` | 是否在 server log 输出方法级 trace |
 | `POKE_BRIDGE_MAX_READ_LINES` | `200` | 单次读取最大行数 |
 | `POKE_BRIDGE_MAX_READ_BYTES` | `32768` | 单次读取最大字节数 |
 | `POKE_BRIDGE_MAX_OUTPUT_TAIL_LINES` | `200` | 命令输出返回的最大 tail 行数 |
@@ -157,6 +158,22 @@ $POKE_BRIDGE_STATE_DIR/runs/...
 - `git` / `codex` 是否能找到
 - 当前目录是否在 git repo 中
 - 当前目录是否命中 codex trusted entries
+
+## 观测与排查
+
+默认会在 server log 输出 `TRACE {...}` 行，用来观察：
+
+- HTTP 请求方法、路径、状态码
+- JSON-RPC method / id
+- `tools/call` 的工具名与关键参数摘要
+- 是否带了 Poke callback headers
+- `shell` 的 `run / started / heartbeat / completed`
+
+如果想关闭这些 trace：
+
+```bash
+export POKE_BRIDGE_TRACE=0
+```
 
 ## 推荐部署方式
 

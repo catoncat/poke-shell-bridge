@@ -45,6 +45,18 @@ python3 scripts/bridgectl.py logs remote tunnel -n 50
 - `deploy`：重新安装当前仓库；远端会先 `git pull --ff-only origin main`，然后重启对应服务
 - `logs`：只支持 `bridge` 或 `tunnel`
 
+默认情况下，bridge 的 server log 里会带 `TRACE {...}` 行，可以直接配合：
+
+```bash
+python3 scripts/bridgectl.py logs local bridge -n 100
+```
+
+来看：
+
+- `initialize / tools/list / tools/call`
+- HTTP `200 / 202 / 409`
+- `shell.started / shell.heartbeat / shell.completed`
+
 ## 可配置环境变量
 
 如果你的机器名、远端路径或 tunnel 名不同，可以通过环境变量覆盖：

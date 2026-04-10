@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import AsyncGenerator
 
 from .shell import ShellRuntime, run_shell_command
+from .trace import emit_trace
 
 FAST_COMPLETION_GRACE_SECONDS = 0.25
 
@@ -53,6 +54,12 @@ async def stream_shell_command(
     max_tail_bytes: int,
     heartbeat_seconds: int,
 ) -> AsyncGenerator[str, None]:
+    emit_trace(
+        "shell.run",
+        command_preview=command[:160],
+        resolved_cwd=str(cwd),
+        timeout_seconds=timeout,
+    )
     task = asyncio.create_task(
         asyncio.to_thread(
             run_shell_command,
@@ -74,9 +81,19 @@ async def stream_shell_command(
             timeout=FAST_COMPLETION_GRACE_SECONDS,
         )
     except asyncio.TimeoutError:
-        yield _started_event(command, cwd, runtime, timeout)
+        event = _started_event(command, cwd, runtime, timeout)
+        emit_trace("shell.started", command_preview=command[:160], timeout_seconds=timeout)
+        yield event
     else:
-        yield _completed_event(result)
+        event = _completed_event(result)
+        emit_trace(
+            "shell.completed",
+            command_preview=command[:160],
+            success=result.get("success"),
+            exit_code=result.get("exit_code"),
+            duration_ms=result.get("duration_ms"),
+        )
+        yield event
         return
 
     while not task.done():
@@ -86,10 +103,33 @@ async def stream_shell_command(
                 timeout=heartbeat_interval,
             )
         except asyncio.TimeoutError:
-            yield _heartbeat_event(command, int(time.monotonic() - started))
+            elapsed_seconds = int(time.monotonic() - started)
+            event = _heartbeat_event(command, elapsed_seconds)
+            emit_trace(
+                "shell.heartbeat",
+                command_preview=command[:160],
+                elapsed_seconds=elapsed_seconds,
+            )
+            yield event
         else:
-            yield _completed_event(result)
+            event = _completed_event(result)
+            emit_trace(
+                "shell.completed",
+                command_preview=command[:160],
+                success=result.get("success"),
+                exit_code=result.get("exit_code"),
+                duration_ms=result.get("duration_ms"),
+            )
+            yield event
             return
 
     result = await task
-    yield _completed_event(result)
+    event = _completed_event(result)
+    emit_trace(
+        "shell.completed",
+        command_preview=command[:160],
+        success=result.get("success"),
+        exit_code=result.get("exit_code"),
+        duration_ms=result.get("duration_ms"),
+    )
+    yield event
