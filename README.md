@@ -77,7 +77,9 @@ npx poke tunnel http://127.0.0.1:8765/mcp -n poke-shell-bridge
 | `POKE_BRIDGE_SHELL` | 自动解析 | 指定 shell 可执行文件 |
 | `POKE_BRIDGE_SHELL_MODE` | `login` | `login` 或 `exec` |
 | `POKE_BRIDGE_PATH_PREFIX` | 空 | 额外追加到 `PATH` 前面的目录列表 |
-| `POKE_BRIDGE_COMMAND_TIMEOUT` | `30` | `shell` / `shell_background` 默认超时秒数 |
+| `POKE_BRIDGE_SHELL_TIMEOUT` | `10` | `shell` 的默认超时秒数 |
+| `POKE_BRIDGE_BACKGROUND_TIMEOUT` | `1800` | `shell_background` 的默认超时秒数 |
+| `POKE_BRIDGE_COMMAND_TIMEOUT` | 兼容旧配置 | 若设置且未设置新变量，则同时作为两类命令的默认超时 |
 | `POKE_BRIDGE_CALLBACK_HEARTBEAT_SECONDS` | `5` | 长命令 heartbeat 间隔 |
 | `POKE_BRIDGE_MAX_READ_LINES` | `200` | 单次读取最大行数 |
 | `POKE_BRIDGE_MAX_READ_BYTES` | `32768` | 单次读取最大字节数 |
@@ -113,6 +115,13 @@ POKE_BRIDGE_SHELL > $SHELL > 平台默认 shell
 - `command -v codex`
 - `pytest tests/foo.py -q`
 
+特点：
+
+- 同步执行
+- 默认短超时（默认 `10s`）
+- 应快速返回最终结果
+- 如果时长不确定、输出可能很大，或需要进度回推，应改用 `shell_background`
+
 返回内容包含：
 
 - `success`
@@ -121,6 +130,12 @@ POKE_BRIDGE_SHELL > $SHELL > 平台默认 shell
 - `stderr`
 - `resolved_cwd`
 - `shell` / `shell_args` / `shell_mode` / `shell_source`
+
+如果同步命令超时，bridge 会返回结构化 timeout 错误，并附带：
+
+- 已捕获的部分输出
+- 持久化日志路径
+- `suggested_tool: shell_background`
 
 如果输出过大，完整输出会保存到：
 
@@ -136,6 +151,13 @@ $POKE_BRIDGE_STATE_DIR/runs/...
 - 大型构建
 - 长时间测试
 
+特点：
+
+- 首先返回 `started`
+- 默认使用长超时（默认 `1800s`）
+- 运行中通过 callback 回推 `heartbeat`
+- 结束后回推 `completed`
+
 行为是：
 
 1. 立即返回一条 `started`
@@ -143,7 +165,7 @@ $POKE_BRIDGE_STATE_DIR/runs/...
 3. 结束后回推 `completed`
 
 > 注意：`shell_background` 依赖 Poke callback headers。
-> 如果 MCP 客户端没有带 `X-Poke-Callback-Token` / `X-Poke-Callback-Url`，它只会返回 `started`，不会继续把后续结果回传。
+> 如果 MCP 客户端没有带 `X-Poke-Callback-Token` / `X-Poke-Callback-Url`，Poke SDK 的 callback 包装不会继续执行后续 generator 生命周期，因此这个工具不适合作为“普通 MCP 客户端下的后台执行器”。
 
 ### `workspace_profile`
 

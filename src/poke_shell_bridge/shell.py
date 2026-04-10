@@ -40,6 +40,14 @@ def _tail_output(text: str, *, max_lines: int, max_bytes: int) -> tuple[str, boo
     return joined, truncated
 
 
+def _coerce_output_text(value: str | bytes | None) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return value
+
+
 def _persist_outputs(
     *,
     state_dir: Path,
@@ -193,6 +201,7 @@ def run_shell_command(
     state_dir: Path,
     max_tail_lines: int,
     max_tail_bytes: int,
+    timeout_suggestion: str | None = None,
 ) -> dict[str, object]:
     if not cwd.exists():
         return {
@@ -250,8 +259,8 @@ def run_shell_command(
         }
     except subprocess.TimeoutExpired as exc:
         duration_ms = int((time.monotonic() - started) * 1000)
-        stdout_text = exc.stdout or ""
-        stderr_text = exc.stderr or ""
+        stdout_text = _coerce_output_text(exc.stdout)
+        stderr_text = _coerce_output_text(exc.stderr)
         stdout_tail, stdout_truncated = _tail_output(
             stdout_text,
             max_lines=max_tail_lines,
@@ -267,7 +276,7 @@ def run_shell_command(
             stdout_text=stdout_text,
             stderr_text=stderr_text,
         )
-        return {
+        result = {
             "success": False,
             "error": {"code": "timeout", "message": f"Command timed out after {timeout} seconds."},
             "command": command,
@@ -280,6 +289,9 @@ def run_shell_command(
             "stderr_path": stderr_path,
             **_shell_result(runtime, cwd),
         }
+        if timeout_suggestion:
+            result["suggested_tool"] = timeout_suggestion
+        return result
     except Exception as exc:  # pragma: no cover - runtime guard
         return {
             "success": False,
