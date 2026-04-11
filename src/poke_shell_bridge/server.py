@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Annotated
 
 import uvicorn
-from fastmcp import FastMCP
+from fastmcp import Context, FastMCP
 from pydantic import Field
 
 from .callback_shell import stream_shell_command
@@ -42,6 +42,8 @@ mcp = FastMCP(
         f"The shell tool runs via {SHELL_RUNTIME.describe()}."
     ),
 )
+
+mcp.add_middleware(PokeCallbackMiddleware())
 
 
 @mcp.tool(
@@ -168,6 +170,7 @@ async def shell(
             )
         ),
     ] = None,
+    ctx: Context | None = None,
 ) -> str:
     resolved_cwd = resolve_cwd(cwd, WORKSPACE_ROOT)
     async for event in stream_shell_command(
@@ -194,11 +197,9 @@ def main() -> None:
         transport="http",
     )
     app = MCPTraceMiddleware(
-        PokeCallbackMiddleware(
-            SSEStreamTakeoverMiddleware(
-                mcp_http_app,
-                transport_path="/mcp",
-            )
+        SSEStreamTakeoverMiddleware(
+            mcp_http_app,
+            transport_path="/mcp",
         )
     )
     uvicorn.run(app, host=HOST, port=PORT)

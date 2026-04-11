@@ -59,7 +59,7 @@ def _body_fields(body: bytes, content_type: str) -> dict[str, object]:
         if "command" in arguments:
             result["command_preview"] = _clip_text(arguments.get("command"))
         if "path" in arguments:
-            result["path"] = _clip_text(arguments.get("path"), limit=120)
+            result["argument_path"] = _clip_text(arguments.get("path"), limit=120)
         if "cwd" in arguments:
             result["cwd"] = _clip_text(arguments.get("cwd"), limit=120)
     elif method == "initialize":

@@ -10,7 +10,13 @@ from dataclasses import dataclass
 from typing import Any, AsyncGenerator, Callable, Optional
 from urllib.parse import urlparse
 
+from fastmcp import Context
+from fastmcp.server.dependencies import get_http_request
+from fastmcp.server.middleware.middleware import Middleware
+
 from .trace import emit_trace
+
+CALLBACK_STATE_KEY = "__poke_callback_context__"
 
 
 @dataclass
@@ -22,6 +28,7 @@ class CallbackContext:
 _callback_context: ContextVar[Optional[CallbackContext]] = ContextVar(
     "_callback_context", default=None
 )
+_background_tasks: set[asyncio.Task[Any]] = set()
 
 
 def set_callback_context(ctx: CallbackContext) -> Token[Optional[CallbackContext]]:
@@ -39,6 +46,27 @@ def _callback_host(url: str | None) -> str | None:
         return urlparse(url).netloc or None
     except Exception:
         return None
+
+
+async def _resolve_callback_context(args: tuple[Any, ...], kwargs: dict[str, Any]) -> CallbackContext:
+    fastmcp_ctx = _find_fastmcp_context(args, kwargs)
+    if fastmcp_ctx is not None:
+        state = await fastmcp_ctx.get_state(CALLBACK_STATE_KEY)
+        if isinstance(state, CallbackContext):
+            return state
+        if isinstance(state, dict):
+            return CallbackContext(
+                callback_token=state.get("callback_token"),
+                callback_url=state.get("callback_url"),
+            )
+    return _callback_context.get() or CallbackContext(None, None)
+
+
+def _find_fastmcp_context(args: tuple[Any, ...], kwargs: dict[str, Any]) -> Context | None:
+    for value in (*args, *kwargs.values()):
+        if isinstance(value, Context):
+            return value
+    return None
 
 
 def _send_callback_sync(
@@ -126,14 +154,53 @@ async def _send_callback(
         return result
 
 
+def _register_background_task(task: asyncio.Task[Any], callback_url: str) -> None:
+    callback_host = _callback_host(callback_url)
+    _background_tasks.add(task)
+    emit_trace(
+        "callback.task_spawned",
+        callback_host=callback_host,
+        active_tasks=len(_background_tasks),
+    )
+
+    def _finalize(done_task: asyncio.Task[Any]) -> None:
+        _background_tasks.discard(done_task)
+        if done_task.cancelled():
+            emit_trace(
+                "callback.task_done",
+                callback_host=callback_host,
+                cancelled=True,
+                active_tasks=len(_background_tasks),
+            )
+            return
+        exc = done_task.exception()
+        emit_trace(
+            "callback.task_done",
+            callback_host=callback_host,
+            cancelled=False,
+            active_tasks=len(_background_tasks),
+            error=str(exc)[:200] if exc is not None else None,
+        )
+        if exc is not None:
+            emit_trace("callback.error", error=str(exc)[:200])
+
+    task.add_done_callback(_finalize)
+
+
 def with_callbacks(
     handler: Callable[..., AsyncGenerator[str, None]],
 ) -> Callable[..., Any]:
     @functools.wraps(handler)
     async def wrapper(*args: Any, **kwargs: Any) -> str:
-        ctx = _callback_context.get()
-        callback_token = ctx.callback_token if ctx else None
-        callback_url = ctx.callback_url if ctx else None
+        ctx = await _resolve_callback_context(args, kwargs)
+        callback_token = ctx.callback_token
+        callback_url = ctx.callback_url
+        emit_trace(
+            "callback.context",
+            callback_host=_callback_host(callback_url),
+            token_present=bool(callback_token),
+            url_present=bool(callback_url),
+        )
 
         gen = handler(*args, **kwargs)
         first = await gen.__anext__()
@@ -179,7 +246,7 @@ def with_callbacks(
                     buffered = next_val
 
             task = asyncio.create_task(_background())
-            task.add_done_callback(_log_task_exception)
+            _register_background_task(task, callback_url)
         else:
             await gen.aclose()
 
@@ -188,33 +255,17 @@ def with_callbacks(
     return wrapper
 
 
-def _log_task_exception(task: asyncio.Task[Any]) -> None:
-    if task.cancelled():
-        return
-    exc = task.exception()
-    if exc is not None:
-        emit_trace("callback.error", error=str(exc)[:200])
-
-
-class PokeCallbackMiddleware:
-    def __init__(self, app: Any) -> None:
-        self.app = app
-
-    async def __call__(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
-        if scope["type"] != "http":
-            await self.app(scope, receive, send)
-            return
-
-        headers = dict(scope.get("headers", []))
-        cb_token = headers.get(b"x-poke-callback-token")
-        cb_url = headers.get(b"x-poke-callback-url")
-
-        ctx = CallbackContext(
-            callback_token=cb_token.decode() if cb_token else None,
-            callback_url=cb_url.decode() if cb_url else None,
-        )
-        tok = _callback_context.set(ctx)
-        try:
-            await self.app(scope, receive, send)
-        finally:
-            _callback_context.reset(tok)
+class PokeCallbackMiddleware(Middleware):
+    async def on_request(self, context: Any, call_next: Any) -> Any:
+        fastmcp_ctx = context.fastmcp_context
+        if fastmcp_ctx is not None:
+            request = get_http_request()
+            await fastmcp_ctx.set_state(
+                CALLBACK_STATE_KEY,
+                CallbackContext(
+                    callback_token=request.headers.get("x-poke-callback-token"),
+                    callback_url=request.headers.get("x-poke-callback-url"),
+                ),
+                serializable=False,
+            )
+        return await call_next(context)
