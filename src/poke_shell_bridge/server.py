@@ -5,9 +5,9 @@ from typing import Annotated
 import uvicorn
 from fastmcp import FastMCP
 from pydantic import Field
-from poke.mcp import PokeCallbackMiddleware, with_callbacks
 
 from .callback_shell import stream_shell_command
+from .callbacks import PokeCallbackMiddleware, with_callbacks
 from .config import (
     APP_NAME,
     CALLBACK_HEARTBEAT_SECONDS,
