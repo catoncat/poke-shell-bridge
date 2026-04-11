@@ -107,3 +107,72 @@ POKE_BRIDGECTL_REMOTE_PROJECT_ROOT=~/code/poke-shell-bridge \
 POKE_BRIDGECTL_REMOTE_WORKSPACE_ROOT=~/workspace \
 python3 scripts/bridgectl.py deploy remote all
 ```
+
+
+## Poke 连接行为结论
+
+这是前面排查本地 MCP 生命周期后得到的固定结论，后续不要再反复猜：
+
+- **集成可以长期在线**：bridge / tunnel 活着，Poke 就能继续用这个 MCP
+- **session 会周期性轮换**：不是一条 SSE 永远挂到底
+- **从现网日志观察**：常见是约每 5 分钟一次新的 `initialize`，约 30 秒后看到新的 `sse.takeover`
+- **单次调用有超时约束**：Poke 官方 MCP Client Specification 写了默认 network timeout 是 30 秒
+- **所以长命令必须靠 callback 回结果**：不能指望同步请求一直挂着等
+
+排查顺序建议固定为：
+
+1. 先看 bridge / tunnel 是否在线
+2. 再看有没有新的 `initialize` / `sse.takeover`
+3. 最后看具体调用有没有 `shell.completed` + `callback.send` / `callback.result`
+
+如果第 1 步正常，第 2 步也正常，那问题通常不在“连接断了”，而在具体命令或 callback 行为。
+
+## Poke 使用建议（给远程 SSH 场景）
+
+如果 Poke 要在 `m1` 上再 SSH 到另一台机器执行命令，建议遵循下面这套傻瓜顺序：
+
+1. **先探测环境，不要直接 deploy**
+
+```bash
+ssh m4 'export PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH; uname -m; command -v node; command -v npx; command -v wrangler'
+```
+
+2. **确认路径后，再执行正式命令**
+
+```bash
+ssh m4 'export PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH; cd ~/work/doodle-jump-pixel && npx wrangler pages deploy . --project-name doodle-jump-pixel'
+```
+
+3. **不要在 SSH 里套复杂引号地狱**
+
+少用这种：
+
+```bash
+ssh m4 "zsh -l -c "...""
+```
+
+优先用单层命令，必要时把脚本先写成文件再执行。
+
+4. **不要默认上 `zsh -l`**
+
+- 非交互远程命令容易把 zsh 插件链一起拉起来
+- 遇到 `FUNCNEST` / 卡死时，第一反应不是“再试一次”，而是去掉 login shell
+
+5. **把 heartbeat 当进度，不要把 heartbeat 当结果**
+
+- heartbeat 被限流时，bridge 现在会直接丢弃中间 heartbeat
+- 真正可靠的完成信号是 `shell.completed` 对应的 `completed` callback
+
+如果要看连接是否正常，不要只盯着聊天界面，直接看 bridge log：
+
+```bash
+python3 scripts/bridgectl.py logs remote bridge -n 100
+```
+
+重点看：
+
+- `shell.started`
+- `shell.completed`
+- `callback.send`
+- `callback.result`
+- `callback.drop`（表示中间 heartbeat 因限流被丢弃）

@@ -78,6 +78,92 @@ npx poke tunnel http://127.0.0.1:8765/mcp -n poke-shell-bridge
 - bridge 会优先让新的回推通道接管
 - 不再让旧的脏连接一直占着 session 把后续调用卡死
 
+
+## Poke 连接行为结论
+
+这是这个仓库在实际接入 Poke 后，已经确认过的结论：
+
+1. **本地 MCP 集成可以长期在线**
+   - 只要 bridge 和 tunnel 还活着，这个集成本身就会继续可用
+   - 它不是“过一会儿自动失效”的模型
+
+2. **但 Poke 侧不是一条永不变化的永久连接**
+   - Poke 会周期性重建 session，并重新发起 `initialize` / `GET /mcp`
+   - 从我们的运行日志看，常见表现是 **约每 5 分钟一次新的 `initialize`**，随后出现新的 SSE 接管
+   - 这属于客户端连接轮换，不代表 tunnel 挂了
+
+3. **单次请求仍然受客户端超时约束**
+   - 根据 Poke 的 MCP Client Specification，默认 network timeout 是 **30 秒**
+   - 所以长命令不能假设“一条普通请求挂着一直等”，必须依赖 callback / heartbeat / completed
+
+4. **排查时要分清“连接在线”还是“调用完成”**
+   - 连接在线：看 bridge / tunnel 是否还在运行
+   - 调用完成：看日志里有没有 `shell.completed`，以及对应的 `callback.send` / `callback.result`
+
+一句话：
+
+> **集成本身可以长期在线，但 session / SSE 会周期性轮换；真正影响长命令能不能回来的是 callback 流程，不是“这条连接有没有永远不断”。**
+
+## 远程 SSH 场景的建议
+
+当 Poke 通过一台中转机器（例如 `m1`）再去 SSH 到另一台机器（例如 `m4`）时，最容易踩两个坑：
+
+### 1) 非交互 SSH 环境不等于你手工开终端的环境
+
+常见现象：
+
+- `node` / `npx` / `wrangler` 找不到
+- 同一条命令你手工跑可以，Poke 跑不行
+
+原因通常是：
+
+- SSH 非交互命令不会完整加载你平时终端里的启动链
+- Apple Silicon 机器常见路径是 `/opt/homebrew/bin`，不是 `/usr/local/bin`
+- 目标机上命令可能装在用户目录 PATH 里，而远程非交互命令没带进去
+
+更稳的做法：
+
+- **先探测，再执行**
+- 先在目标机确认 `command -v node` / `command -v npx` / `command -v wrangler`
+- 执行正式命令时显式补 PATH，不要盲猜绝对路径
+
+例如：
+
+```bash
+ssh m4 'export PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH; command -v node; command -v npx; command -v wrangler'
+```
+
+确认后再跑：
+
+```bash
+ssh m4 'export PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:$PATH; cd ~/work/doodle-jump-pixel && npx wrangler pages deploy . --project-name doodle-jump-pixel'
+```
+
+### 2) 不要为了“加载环境”就乱上 `zsh -l`
+
+常见现象：
+
+- 命令卡死
+- `FUNCNEST`
+- zsh 插件递归
+
+原因通常是：
+
+- 某些 oh-my-zsh / 自定义插件 / prompt hook 只适合交互 shell
+- `zsh -l` 会把这些启动逻辑也一起带进去
+
+更稳的做法：
+
+- **远程单次命令优先不要用 login shell**
+- 优先直接 `ssh m4 'export PATH=...; your command'`
+- 如果必须包 shell，优先 `/bin/zsh -c`，不要先上 `/bin/zsh -l -c`
+- 如果命令本身不依赖 zsh 特性，也可以直接用 `/bin/sh -c` 或 `/bin/bash -lc`
+
+一句话：
+
+> 远程自动化里，**显式 PATH 比 login shell 更可靠**。
+
+
 ## 配置
 
 | 环境变量 | 默认值 | 说明 |
