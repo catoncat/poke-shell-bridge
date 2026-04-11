@@ -17,6 +17,9 @@ from fastmcp.server.middleware.middleware import Middleware
 from .trace import emit_trace
 
 CALLBACK_STATE_KEY = "__poke_callback_context__"
+FINAL_EVENT_NAME = "completed"
+FINAL_RETRY_ATTEMPTS = 3
+FINAL_RETRY_CAP_MS = 2000
 
 
 @dataclass
@@ -69,6 +72,17 @@ def _find_fastmcp_context(args: tuple[Any, ...], kwargs: dict[str, Any]) -> Cont
     return None
 
 
+def _event_name(content: str) -> str | None:
+    try:
+        payload = json.loads(content)
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    event = payload.get("event")
+    return str(event) if isinstance(event, str) else None
+
+
 def _send_callback_sync(
     *,
     url: str,
@@ -118,12 +132,17 @@ async def _send_callback(
     token: str,
     content: str,
     has_more: bool,
+    event_name: str | None,
 ) -> dict[str, Any]:
+    is_final = event_name == FINAL_EVENT_NAME or not has_more
+    attempts = 0
+
     while True:
         emit_trace(
             "callback.send",
             callback_host=_callback_host(url),
             has_more=has_more,
+            event_name=event_name,
             content_preview=str(content).replace("\n", "\\n")[:160],
         )
         result = await asyncio.to_thread(
@@ -134,19 +153,47 @@ async def _send_callback(
             has_more=has_more,
         )
         if result.get("_retry"):
-            delay_ms = int(result.get("retryAfterMs", 60_000))
+            retry_after_ms = int(result.get("retryAfterMs", 60_000))
+            if not is_final:
+                emit_trace(
+                    "callback.drop",
+                    callback_host=_callback_host(url),
+                    event_name=event_name,
+                    reason="rate_limited_intermediate",
+                    retry_after_ms=retry_after_ms,
+                )
+                result["_dropped"] = True
+                return result
+
+            attempts += 1
+            if attempts > FINAL_RETRY_ATTEMPTS:
+                emit_trace(
+                    "callback.drop",
+                    callback_host=_callback_host(url),
+                    event_name=event_name,
+                    reason="rate_limited_final",
+                    retry_after_ms=retry_after_ms,
+                )
+                result["_dropped"] = True
+                return result
+
+            sleep_ms = min(retry_after_ms, FINAL_RETRY_CAP_MS)
             emit_trace(
                 "callback.retry",
                 callback_host=_callback_host(url),
-                retry_after_ms=delay_ms,
+                event_name=event_name,
+                retry_after_ms=retry_after_ms,
+                sleep_ms=sleep_ms,
+                attempt=attempts,
             )
-            await asyncio.sleep(delay_ms / 1000)
+            await asyncio.sleep(sleep_ms / 1000)
             continue
 
         emit_trace(
             "callback.result",
             callback_host=_callback_host(url),
             has_more=has_more,
+            event_name=event_name,
             status=result.get("_status"),
             has_next_token="nextToken" in result and result.get("nextToken") is not None,
             network_error=result.get("_network_error"),
@@ -209,41 +256,31 @@ def with_callbacks(
 
             async def _background() -> None:
                 current_token = callback_token
-                try:
-                    buffered = await gen.__anext__()
-                except StopAsyncIteration:
-                    return
-
-                while True:
-                    try:
-                        next_val = await gen.__anext__()
-                    except StopAsyncIteration:
-                        await _send_callback(
-                            url=callback_url,
-                            token=current_token,
-                            content=buffered,
-                            has_more=False,
-                        )
-                        return
-
+                async for event in gen:
+                    event_name = _event_name(event)
+                    has_more = event_name != FINAL_EVENT_NAME
                     sent = await _send_callback(
                         url=callback_url,
                         token=current_token,
-                        content=buffered,
-                        has_more=True,
+                        content=event,
+                        has_more=has_more,
+                        event_name=event_name,
                     )
                     next_token = sent.get("nextToken")
                     if next_token:
                         current_token = str(next_token)
-                    else:
+                    elif has_more:
                         emit_trace(
                             "callback.no_next_token",
                             callback_host=_callback_host(callback_url),
-                            has_more=True,
+                            event_name=event_name,
+                            has_more=has_more,
                             status=sent.get("_status"),
                             network_error=sent.get("_network_error"),
+                            dropped=sent.get("_dropped"),
                         )
-                    buffered = next_val
+                    if not has_more:
+                        return
 
             task = asyncio.create_task(_background())
             _register_background_task(task, callback_url)
